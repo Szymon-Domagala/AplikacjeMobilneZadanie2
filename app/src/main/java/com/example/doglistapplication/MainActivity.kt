@@ -77,8 +77,8 @@ class MainActivity : ComponentActivity() {
                                 navController = navController,
                                 dogName = dogName,
                                 dogBreed = dogBreed,
-                                onRemove = {
-                                    val dog = detailsViewModel.removeDogByName(it, dogListViewModel.dogs)
+                                onRemove = { dogNameToRemove: String ->
+                                    val dog = detailsViewModel.removeDogByName(dogNameToRemove, dogListViewModel.dogs)
                                     dog?.let { removed -> dogListViewModel.removeDog(removed) }
                                 }
                             )
