@@ -22,14 +22,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.doglistapplication.ui.theme.DogListApplicationTheme
+import com.verticalcoding.mystudentlist.R
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,37 +39,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             DogListApplicationTheme {
                 val navController = rememberNavController()
-
-                val dogs = remember { mutableStateListOf<Dog>() }
-                val favoriteDogs = remember { mutableStateListOf<Dog>() }
-                val dogNames = remember { mutableSetOf<String>() }
-
-                fun addDog(name: String, breed: String) {
-                    if (!dogNames.contains(name)) {
-                        val newDog = Dog(name, breed, false)
-                        dogs.add(newDog)
-                        dogNames.add(name)
-                    }
-                }
-
-                fun removeDog(dog: Dog) {
-                    dogNames.remove(dog.name)
-                    favoriteDogs.remove(dog)
-                    dogs.remove(dog)
-                }
-
-                fun toggleFavorite(dog: Dog) {
-                    dog.isFavorite = !dog.isFavorite
-                    if (dog.isFavorite) {
-                        if (dogs.remove(dog)) {
-                            favoriteDogs.add(0, dog)
-                        }
-                    } else {
-                        if (favoriteDogs.remove(dog)) {
-                            dogs.add(dog)
-                        }
-                    }
-                }
+                val dogListViewModel: DogListViewModel = viewModel()
+                val addDogViewModel: AddDogViewModel = viewModel()
+                val detailsViewModel: DetailsViewModel = viewModel()
 
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     NavHost(
@@ -78,26 +51,38 @@ class MainActivity : ComponentActivity() {
                     ) {
                         composable("dog_list_screen") {
                             DogListScreen(
-                                navController, dogs, favoriteDogs, dogNames,
-                                toggleFavorite = ::toggleFavorite
+                                navController = navController,
+                                viewModel = dogListViewModel
                             )
                         }
+
                         composable("add_dog_screen") {
-                            AddDogScreen(navController) { name, breed ->
-                                addDog(name, breed)
-                            }
-                        }
-                        composable("settings_screen") { SettingsScreen(navController) }
-                        composable("AccountScreen") { AccountScreen(navController) }
-                        composable("DetailsScreen/{dogName}/{dogBreed}") { backStackEntry ->
-                            val dogName = backStackEntry.arguments?.getString("dogName") ?: "Brak danych"
-                            val dogBreed = backStackEntry.arguments?.getString("dogBreed") ?: "Brak danych"
-                            DetailsScreen(navController, dogName, dogBreed) { name ->
-                                val dogToRemove = dogs.find { it.name == name }
-                                dogToRemove?.let { removeDog(it) }
-                            }
+                            AddDogScreen(
+                                navController = navController,
+                                viewModel = addDogViewModel,
+                                onAdd = { name, breed ->
+                                    dogListViewModel.addDog(name, breed)
+                                }
+                            )
                         }
 
+                        composable("settings_screen") { SettingsScreen(navController) }
+
+                        composable("AccountScreen") { AccountScreen(navController) }
+
+                        composable("DetailsScreen/{dogName}/{dogBreed}") { backStackEntry ->
+                            val dogName = backStackEntry.arguments?.getString("dogName") ?: ""
+                            val dogBreed = backStackEntry.arguments?.getString("dogBreed") ?: ""
+                            DetailsScreen(
+                                navController = navController,
+                                dogName = dogName,
+                                dogBreed = dogBreed,
+                                onRemove = {
+                                    val dog = detailsViewModel.removeDogByName(it, dogListViewModel.dogs)
+                                    dog?.let { removed -> dogListViewModel.removeDog(removed) }
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -105,20 +90,21 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+
 @Composable
 fun DogListScreen(
     navController: NavController,
-    dogs: MutableList<Dog>,
-    favoriteDogs: MutableList<Dog>,
-    dogNames: MutableSet<String>,
-    toggleFavorite: (Dog) -> Unit,
-    modifier: Modifier = Modifier
+    viewModel: DogListViewModel
 ) {
-    var searchText by remember { mutableStateOf("") }
+    val searchText = viewModel.searchText
+    val dogs = viewModel.dogs
+    val favoriteDogs = viewModel.favoriteDogs
 
-    Column(modifier = modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize()) {
         Row(
-            modifier = Modifier.fillMaxWidth().background(Color.LightGray),
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color.LightGray),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -139,8 +125,8 @@ fun DogListScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 OutlinedTextField(
-                    value = searchText,
-                    onValueChange = { text -> searchText = text },
+                    value = searchText.value,
+                    onValueChange = { viewModel.searchText.value = it },
                     placeholder = { Text("Poszukaj pieska 🐕") },
                     modifier = Modifier.weight(1f)
                 )
@@ -156,15 +142,17 @@ fun DogListScreen(
 
             Row(modifier = Modifier.fillMaxWidth()) {
                 Text("🐶: ${dogs.size + favoriteDogs.size}", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("❤\uFE0F: ${favoriteDogs.size}", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+
+                Icon(Icons.Filled.Favorite, contentDescription = "Favorite Dogs", tint = Color.Red)
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("${favoriteDogs.size}", fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            val filteredDogs = (favoriteDogs + dogs).filter {
-                it.name.contains(searchText, ignoreCase = true)
-            }
+            val filteredDogs = viewModel.getFilteredDogs()
 
             LazyColumn {
                 items(filteredDogs) { dog ->
@@ -172,12 +160,10 @@ fun DogListScreen(
                         dog = dog,
                         navController = navController,
                         onDelete = {
-                            dogNames.remove(dog.name)
-                            favoriteDogs.remove(dog)
-                            dogs.remove(dog)
+                            viewModel.removeDog(dog)
                         },
                         onFavorite = {
-                            toggleFavorite(dog)
+                            viewModel.toggleFavorite(dog)
                         }
                     )
                 }
@@ -229,9 +215,13 @@ fun DogItem(dog: Dog, navController: NavController, onDelete: () -> Unit, onFavo
 }
 
 @Composable
-fun AddDogScreen(navController: NavController, addDog: (String, String) -> Unit) {
-    var name by remember { mutableStateOf("") }
-    var breed by remember { mutableStateOf("") }
+fun AddDogScreen(
+    navController: NavController,
+    viewModel: AddDogViewModel,
+    onAdd: (String, String) -> Unit
+) {
+    val name = viewModel.name
+    val breed = viewModel.breed
 
     Column(modifier = Modifier.fillMaxSize()) {
 
@@ -272,17 +262,15 @@ fun AddDogScreen(navController: NavController, addDog: (String, String) -> Unit)
             Spacer(modifier = Modifier.height(16.dp))
 
             OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
+                value = name.value,
+                onValueChange = { name.value = it },
                 placeholder = { Text("Imie") },
                 modifier = Modifier.fillMaxWidth()
             )
 
-            Spacer(modifier = Modifier.height(8.dp))
-
             OutlinedTextField(
-                value = breed,
-                onValueChange = { breed = it },
+                value = breed.value,
+                onValueChange = { breed.value = it },
                 placeholder = { Text("Rasa") },
                 modifier = Modifier.fillMaxWidth()
             )
@@ -291,8 +279,9 @@ fun AddDogScreen(navController: NavController, addDog: (String, String) -> Unit)
 
             Button(
                 onClick = {
-                    if (name.isNotBlank() && breed.isNotBlank()) {
-                        addDog(name, breed)
+                    if (name.value.isNotBlank() && breed.value.isNotBlank()) {
+                        onAdd(name.value, breed.value)
+                        viewModel.clear()
                         navController.popBackStack()
                     }
                 },
@@ -354,7 +343,12 @@ fun AccountScreen(navController: NavController) {
 }
 
 @Composable
-fun DetailsScreen(navController: NavController, dogName: String, dogBreed: String, removeDog: (String) -> Unit) {
+fun DetailsScreen(
+    navController: NavController,
+    dogName: String,
+    dogBreed: String,
+    onRemove: (String) -> Unit
+) {
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier
@@ -368,7 +362,7 @@ fun DetailsScreen(navController: NavController, dogName: String, dogBreed: Strin
             }
             Text("Detale", fontSize = 22.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
             IconButton(onClick = {
-                removeDog(dogName)
+                onRemove(dogName)
                 navController.navigate("dog_list_screen")
             }) {
                 Icon(Icons.Outlined.Delete, contentDescription = "Delete", tint = Color.Black)
@@ -391,23 +385,9 @@ fun DetailsScreen(navController: NavController, dogName: String, dogBreed: Strin
     }
 }
 
-data class Dog(val name: String, val breed: String, var isFavorite: Boolean = false)
+data class Dog(
+    val name: String,
+    val breed: String,
+    var isFavorite: Boolean = false
+)
 
-@Preview(showBackground = true)
-@Composable
-fun PreviewDogListScreen() {
-    DogListApplicationTheme {
-        val navController = rememberNavController()
-        val dogs = remember { mutableStateListOf<Dog>() }
-        val favoriteDogs = remember { mutableStateListOf<Dog>() }
-        val dogNames = remember { mutableSetOf<String>() }
-
-        DogListScreen(
-            navController = navController,
-            dogs = dogs,
-            favoriteDogs = favoriteDogs,
-            dogNames = dogNames,
-            toggleFavorite = {}
-        )
-    }
-}
